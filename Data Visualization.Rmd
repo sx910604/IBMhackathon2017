@@ -1,0 +1,104 @@
+---
+title: "Data Visualization for Graduation Rate"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+```{r,include=FALSE}
+library(ggplot2)
+library(rvest)
+library(dplyr)
+library(scales)
+library(reshape2)
+load("~/Desktop/gr.Rdata")
+states <- map_data("state")
+```
+
+
+Firstly, Let us take a look at the total number of students and graduation rate among the US.
+
+```{r,echo=F}
+g1 <- grnew %>%group_by(State) %>% summarise(count = sum(ALL_T,na.rm=T))
+names(g1)[1] <- "region"
+g1$region <- tolower(g1$region)
+g1 <- merge(states,g1,by="region")
+ggplot(data=g1,aes(x=long,y=lat,group=group,fill=g1$count))+geom_polygon(colour="white")+scale_fill_continuous(low = "#feceda", high = "#c81f49", guide="colorbar")+labs(fill = "Number of Students")+coord_map()+ggtitle("The number of students")
+
+
+g2 <- grnew %>%group_by(State) %>% summarise(rate = sum(ALL_G,na.rm=T)/sum(ALL_T,na.rm=T))
+names(g2)[1] <- "region"
+g2$region <- tolower(g2$region)
+g2 <- merge(states,g2,by="region")
+
+ggplot(data=g2,aes(x=long,y=lat,group=group,fill=g2$rate))+geom_polygon(colour="white")+scale_fill_continuous(low = "white", high = "#c81f49", guide="colorbar")+labs(fill = " Graduation Rate")+coord_map()+ggtitle("The gradution rate of students")
+```
+
+We can see that California and Texas are two typical states with large amount of students and high graduation rate.
+
+```{r,echo=F}
+g5 <- grnew %>%group_by(State) %>% summarise(graduation=sum(ALL_G/100,na.rm=T),nongraduation=sum(ALL_T-ALL_G/100,na.rm=T))
+g5 <- melt(g5,id="State")
+ggplot(g5)+geom_bar(aes(x=State,y=value,fill=variable),position = "fill",stat="identity")+ggtitle("Proportion of graduation among states")
+```
+
+Then we take a look at what happens between different groups as well as the changes over years.
+
+```{r,echo=F,warning=F}
+g31 <- grnew%>%group_by(year)%>%summarise(total_rate=sum(ALL_G/100,na.rm=T)/sum(ALL_T,na.rm=T),type="total")
+g32 <- grnew%>%group_by(year)%>%summarise(total_rate=sum(as.numeric(White_R)*as.numeric(White_T),na.rm=T)/sum(as.numeric(White_T)*100,na.rm=T),type="White")
+g33 <- grnew%>%group_by(year)%>%summarise(total_rate=sum(as.numeric(Econ_R)*as.numeric(Econ_T),na.rm=T)/sum(as.numeric(Econ_T)*100,na.rm=T),type="Economically Disadvantaged")
+g34 <- grnew%>%group_by(year)%>%summarise(total_rate=sum(as.numeric(LimitE_R)*as.numeric(LimitE_T),na.rm=T)/sum(as.numeric(LimitE_T)*100,na.rm=T),type="LimitEnglish")
+g35 <- grnew%>%group_by(year)%>%summarise(total_rate=sum(as.numeric(Disa_R)*as.numeric(Disa_T),na.rm=T)/sum(as.numeric(Disa_T)*100,na.rm=T),type="Disability")
+g36 <- grnew%>%group_by(year)%>%summarise(total_rate=sum(as.numeric(Hispanic_R)*as.numeric(Hispanic_T),na.rm=T)/sum(as.numeric(Hispanic_T)*100,na.rm=T),type="Hispanic")
+g37 <- grnew%>%group_by(year)%>%summarise(total_rate=sum(as.numeric(AsianPasific_R)*as.numeric(AsianPasific_T),na.rm=T)/sum(as.numeric(AsianPasific_T)*100,na.rm=T),type="AsianPasific")
+g38 <- grnew%>%group_by(year)%>%summarise(total_rate=sum(as.numeric(Black_R)*as.numeric(Black_T),na.rm=T)/sum(as.numeric(Black_T)*100,na.rm=T),type="Black")
+g3 <- rbind(g31,g32,g33,g34,g35,g36,g37,g38)
+ggplot(data=g3,aes(x=year,y=total_rate,col=type))+geom_line()+ggtitle("The graduation rate for different groups")
+
+ggplot(grnew,aes(x=factor(year),y=ALL_R,fill=factor(year)))+geom_violin()+ggtitle("Distributions of overall graduation rate over years")
+
+g4 <- grnew[,c(8,22,24,26,27)]
+g4 <- melt(g4,id="year")
+g4$value <- as.numeric(g4$value)
+g4 <- g4[!is.na(g4$value),]
+
+ggplot(g4,aes(x=value,col=factor(variable),fill=factor(variable)))+geom_density(alpha=0.06)+ggtitle("Distributions of graduation rate among groups")
+
+```
+
+It is obvious the graduation rate is incresing for all subgroups. In addition, the distribution of graduations of schools is moving to the left. Also, we can see a significant difference between overall rate and rate for subgroups.\\
+
+Finally, we focus on the top school defined by more than 95% graduation rate and more than 100 graduation students.
+
+```{r,echo=F}
+topschool <- which(grnew$ALL_R>95&grnew$ALL_T>100)
+grtop <- grnew[topschool,]
+schname <- unique(grtop$SCHNAM)
+grtop <- filter(grnew,SCHNAM %in% schname)
+grtop <- grtop[!duplicated(grtop$SCHNAM),]
+g6 <- arrange(grtop%>%group_by(State)%>%summarise(n=n()),desc(n))
+other <- sum(g6$n[10:50])
+g6 <- g6[1:10,]
+g6[11,] <- c("OTHER",other)
+ggplot(g6,aes(x="",y=as.numeric(n),fill=State))+geom_bar(stat="identity")+coord_polar("y",start=0)+ggtitle("Proprotion of top school among states")
+```
+
+10 states led by California and Texas have about 2/3 of top schools. We will only focus on top schools in Califonia. 
+
+```{r,echo=F}
+ca <- filter(grnew,grnew$ALL_R>95&grnew$ALL_T>100&State=="CALIFORNIA")
+ca <- filter(ca,!is.na(Econ_R))
+ggplot(ca,aes(x=Econ_R,y=ALL_R,col=factor(year)))+geom_point()+geom_jitter()+ggtitle("Relationship between overall graduation rate and economically disadvataged graduation rate")
+```
+
+
+Since we have longitudinal data, we may employ linear mixed effect model. With a large amount of variables compared with observations, a sparsity assumption can be made and L-1 penalization is added to the loss function to select variable. The model can be specified as following:
+$$Y_i^T=\beta X_i+\alpha T+\epsilon_i$$
+Where $\beta$ is fixed effect and $\alpha$ is random effect. In addition, we estimate the parameter by minimizing:
+$$$$
+
+
+
+

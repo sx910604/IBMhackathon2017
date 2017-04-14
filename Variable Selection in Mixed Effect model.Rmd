@@ -1,0 +1,133 @@
+---
+title: "Variable Selection in Longitudinal Data"
+output: html_document
+---
+
+
+### Cross covariance function
+
+We checked the state-level correlation of grants allocation and graduation rate.
+In the state map, it shows that the majority states have a positive correlation
+between their grants receiption and the graduation rate.
+
+```{r,echo=F,warning=F}
+library(data.table)
+library(ggplot2)
+ggdat1 <- fread("~/Desktop/ggdat1.csv",header=T)
+ggplot() + 
+  geom_polygon(data=ggdat1, aes(x=long, y=lat, group = group, fill=ggdat1$rho),colour="white") + 
+  # scale_fill_continuous(low = "thistle2", high = "darkred", guide="colorbar") +
+  scale_fill_continuous(low = 'light blue', high = 'pink', guide="colorbar") +
+  theme_bw() + 
+  labs(fill = "correlations" ,title = "Correlation Map between grants and graduation rate", x="", y="")
+```
+
+
+### Lasso in mixed model
+
+Since we have longitudinal data, we may employ linear mixed effect model. With a large amount of variables compared with observations, a sparsity assumption can be made and L-1 penalization is added to the loss function to select variable. The model can be specified as following:
+$$Y_i^T=\beta X_i+\alpha T+\epsilon_i$$
+Where $\beta$ is fixed effect and $\alpha$ is random effect. In addition, we estimate the parameter by minimizing:
+$$||Y-\beta X-\alpha T||_2^2+\lambda||\beta||_1$$
+
+First we considered the ordinary lasso model, with cross validation to tune the penelization parameter.
+```{r,echo=F,warning=F}
+library(glmmLasso)
+aggrDat <- fread("~/Desktop/aggrDat.csv",header=T)
+# lm1 <- glmmLasso(fix = gr~`84.004`+`84.010`+`84.011`+`84.013`+`84.041`+`84.060`+`84.141`+`84.144`+`84.149`+`84.165`+`84.184`+`84.196`+`84.215`+`84.282`+`84.287`+`84.295`+`84.299`+`84.330`+`84.336`+`84.350`+`84.351`+`84.354`+`84.356`+`84.358`+`84.360`+`84.362`+`84.363`+`84.365`+`84.366`+`84.367`+`84.368`+`84.369`+`84.371`+`84.374`+`84.377`,rnd = list(region=~1+year), lambda = 2.2, data = aggrDat)
+# summary(lm1)
+library(glmnet)
+library(boot)
+
+lm2 <- cv.glmnet(x = as.matrix(aggrDat[,-c(1,2,38)]),y = as.matrix(aggrDat[,2]),family = 'gaussian',alpha = 1)
+plot(lm2,main="LASSO with cross validation")
+
+lm3 <- glmnet(x = as.matrix(aggrDat[,-c(1,2,38)]),y = as.matrix(aggrDat[,2]),family = 'gaussian',alpha = 1,lambda = c(exp(-6),1))
+plot(lm3,main="Variable Selection in Naive LASSO")
+
+ll <- seq(1,5,length.out = 1000)
+res1 <- NULL
+fits = list(NA)
+for(i in 1:length(ll)){
+  fiti <- glmmLasso(fix = gr~`84.004`+`84.010`+`84.011`+`84.013`+`84.041`+`84.060`+`84.141`+`84.144`+`84.149`+`84.165`+`84.184`+`84.196`+`84.215`+`84.282`+`84.287`+`84.295`+`84.299`+`84.330`+`84.336`+`84.350`+`84.351`+`84.354`+`84.356`+`84.358`+`84.360`+`84.362`+`84.363`+`84.365`+`84.366`+`84.367`+`84.368`+`84.369`+`84.371`+`84.374`+`84.377`,rnd = list(region=~1+year), lambda = ll[i], data = aggrDat)
+  res1 <- rbind(res1,fiti$coefficients)
+}
+```
+
+
+To further account for the random effect from time(year) on state-level graduation rate, we then consider the mixed-effect lasso model to choose the top 10 program grants that have the most significant coefficients deviate from 0.
+
+```{r}
+num = 0
+i=1000
+important1 <- NULL
+while(num<11){
+  a = which(res1[i,]!=0)
+  if(length(important1)!=length(a)){
+    add <- setdiff(names(a),important1)
+    important1 <- c(important1,add)
+    num <- length(important1)
+  }
+  i = i-1
+}
+important1[-1]
+
+```
+
+It shows that program "84.060","84.184","84,295","84.351","84.356","84.358","84.360","84.367" and "84.369" have more effect.
+The top 10 program grants with significant impact on state-level graduation rate are:
+
+84.060: Indian Education_Grants to Local Educational Agencies
+84.295: Ready-To-Learn Television
+84.351: Arts in Education
+84.356: Alaska Native Educational Program
+84.358: Rural Education
+84.360: High School Graduation Initiative
+84.369: Grants for State Assessments and Related Activities
+84.367: Improving Teacher Quality State Grants
+84.010: Title I Grants to Local Educational Agency
+84.184: Safe and Drug-free Schools and Communities_National Programs
+
+### Regression Tree with Random Effect
+
+In addition, we also employ random forest to see which variable are more important.
+
+```{r,echo=F,warning=F}
+aggrDat_new <- aggrDat[,c(-1,-38)]
+library(caret)
+library(mlbench)
+control <-trainControl( method="repeatedcv",number=10, repeats=3)
+model <-train(gr~., data=aggrDat_new, method="rf", importance=TRUE, na.action=na.exclude, preProcess="scale", trControl=control)
+importance <-varImp(model)
+plot(importance,main="Importance of Feature")
+```
+
+It shows that program "84.060","84,295","84.358" and "84.360" have more effect.
+We list the top 20 important program grants:
+
+X84.060 (Indian Education_Grants to Local Educational Agencies)  100.00
+X84.295 (Ready-To-Learn Television)  68.40
+X84.358 (Rural Education)  65.66
+X84.360 (High School Graduation Initiative)  64.64
+X84.350 (Transition to Teaching)  54.54
+X84.041  (Impact Aid) 51.20
+X84.365 (English Language Acquisition State Grants)   48.39  
+X84.141 (Migrant Education_High School Equivalency Program)  47.59
+X84.369 (Grants for State Assessments and Related Activities)  46.63
+X84.366  (Mathematics and Science Partnerships) 44.94
+X84.011 (Migrant Education_State Grant Program)  43.66
+X84.196 (Education for Homeless Children and Youth) 42.54
+X84.336 (Teacher Quality Partnership Grants) 42.44
+X84.330 (Advanced Placement Program (Advanced Placement Test Fee; Advanced Placement Incentive Program Grants))  41.42
+X84.144 (Migrant Education_Coordination Program)  39.72
+X84.149 (Migrant Education_College Assistance Migrant Program)  38.29
+X84.377 (School Improvement Grants)  35.46
+X84.013 (Title I State Agency Program for Neglected and Delinquent Children and Youth)  35.40
+X84.165 (Magnet Schools Assistance)  35.18
+X84.287 (Twenty-First Century Community Learning Centers)  34.40
+
+As we can conclude from the random forest model and lass/Mixed-effect lasso model, there is some overlap of the "significant" grants on lifting the state-level graduation rates.
+
+Some further analysis may include:
+Case study for states that shows negative correlation on graduation rate and grants receipient;
+Analysis on "important" program grants.
